@@ -180,6 +180,7 @@ class ModelSun:
 
 class Paths:
     earth_path: str
+    eop_path: str
     kernel_path: str
     phys_path: str
     def __init__(self) -> None: ...
