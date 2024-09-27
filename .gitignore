@@ -12,3 +12,6 @@ cthalassa_example
 .vscode
 .DS_Store
 __pycache__
+
+# Python
+.venv
