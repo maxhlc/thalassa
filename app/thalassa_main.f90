@@ -41,7 +41,7 @@ use AUXILIARIES, only: MJD0
 use IO,          only: READ_IC,CREATE_OUT,DUMP_TRAJ,CREATE_LOG
 use CART_COE,    only: COE2CART,CART2COE
 use PHYS_CONST,  only: READ_PHYS,GMST_UNIFORM
-use NSGRAV,      only: INITIALIZE_NSGRAV
+use NSGRAV,      only: INITIALIZE_NSGRAV, INITIALIZE_EOP
 use PROPAGATE,   only: DPROP_REGULAR
 use SUN_MOON,    only: INITIALIZE_LEGENDRE
 use SETTINGS,    only: READ_SETTINGS
@@ -78,7 +78,7 @@ character(len=8)   :: date_start, date_end
 character(len=10)  :: time_start, time_end
 character(len=5)   :: zone
 ! Paths
-character(len=512) :: earth_path,phys_path
+character(len=512) :: earth_path,phys_path,eop_path
 
 ! ==============================================================================
 
@@ -91,10 +91,12 @@ input_path  = './in/input.txt'
 object_path = './in/object.txt'
 earth_path = './data/earth_potential/GRIM5-S1.txt'
 phys_path = './data/physical_constants.txt'
+eop_path = "./data/eop_data.txt"
 if (command_arguments > 0) call GET_COMMAND_ARGUMENT(1,input_path)
 if (command_arguments > 1) call GET_COMMAND_ARGUMENT(2,object_path)
 if (command_arguments > 2) call GET_COMMAND_ARGUMENT(3,earth_path)
 if (command_arguments > 3) call GET_COMMAND_ARGUMENT(4,phys_path)
+if (command_arguments > 4) call GET_COMMAND_ARGUMENT(5,eop_path)
 
 ! ==============================================================================
 ! 02. INITIALIZATIONS
@@ -110,6 +112,9 @@ call READ_PHYS(phys_path)
 
 ! Initialize Earth data
 call INITIALIZE_NSGRAV(earth_path)
+
+! Initialize EOP data
+call INITIALIZE_EOP(eop_path)
 
 ! Initialize Legendre coefficients, if needed
 if (isun > 1) then

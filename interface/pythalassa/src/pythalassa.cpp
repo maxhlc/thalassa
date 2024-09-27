@@ -67,7 +67,8 @@ PYBIND11_MODULE(pythalassa, m) {
         .def(py::init<>())
         .def_readwrite("phys_path", &cthalassa::Paths::phys_path)
         .def_readwrite("earth_path", &cthalassa::Paths::earth_path)
-        .def_readwrite("kernel_path", &cthalassa::Paths::kernel_path);
+        .def_readwrite("kernel_path", &cthalassa::Paths::kernel_path)
+        .def_readwrite("eop_path", &cthalassa::Paths::eop_path);
 
     // Equation enumeration
     py::enum_<cthalassa::Equations>(m, "Equations")

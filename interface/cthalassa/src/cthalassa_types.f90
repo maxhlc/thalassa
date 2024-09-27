@@ -93,6 +93,8 @@ module CTHALASSA_TYPES
         integer(c_size_t)      :: earth_path_len
         character(kind=c_char) :: kernel_path(512)
         integer(c_size_t)      :: kernel_path_len
+        character(kind=c_char) :: eop_path(512)
+        integer(c_size_t)      :: eop_path_len
     end type THALASSA_PATHS_STRUCT
 
 end module CTHALASSA_TYPES

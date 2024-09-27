@@ -17,6 +17,7 @@ module CTHALASSA
     character(len=:), allocatable :: phys_path
     character(len=:), allocatable :: earth_path
     character(len=:), allocatable :: kernel_path
+    character(len=:), allocatable :: eop_path
 
     contains
 
@@ -31,7 +32,7 @@ module CTHALASSA
 
             ! Import THALASSA modules
             use PHYS_CONST, only: READ_PHYS
-            use NSGRAV,     only: INITIALIZE_NSGRAV
+            use NSGRAV,     only: INITIALIZE_NSGRAV, INITIALIZE_EOP
             use SUN_MOON,   only: INITIALIZE_LEGENDRE, GslSun, GslMoon
             use SETTINGS,   only: isun, imoon, iephem
 
@@ -49,17 +50,22 @@ module CTHALASSA
             allocate(character(paths%phys_path_len) :: phys_path)
             allocate(character(paths%earth_path_len) :: earth_path)
             allocate(character(paths%kernel_path_len) :: kernel_path)
+            allocate(character(paths%eop_path_len) :: eop_path)
 
             ! Parse strings
             call PTR_TO_STR(paths%phys_path,   paths%phys_path_len,   phys_path)
             call PTR_TO_STR(paths%earth_path,  paths%earth_path_len,  earth_path)
             call PTR_TO_STR(paths%kernel_path, paths%kernel_path_len, kernel_path)
+            call PTR_TO_STR(paths%eop_path,    paths%eop_path_len,    eop_path)
 
             ! Load physical model data
             call READ_PHYS(phys_path)
 
             ! Load Earth model data
             call INITIALIZE_NSGRAV(earth_path)
+
+            ! Load EOP data
+            call INITIALIZE_EOP(eop_path)
 
             ! Initialize Legendre coefficients, if needed
             if (isun > 1) then
@@ -86,16 +92,20 @@ module CTHALASSA
 
             ! Import THALASSA modules
             use SETTINGS, only: isun, imoon, iephem
-            use NSGRAV,   only: DEINITIALIZE_NSGRAV
+            use NSGRAV,   only: DEINITIALIZE_NSGRAV, DEINITIALIZE_EOP
             use SUN_MOON, only: DEINITIALIZE_LEGENDRE, GslSun, GslMoon
 
             ! Deallocate memory for file paths
             if (allocated(phys_path)) deallocate(phys_path)
             if (allocated(earth_path)) deallocate(earth_path)
             if (allocated(kernel_path)) deallocate(kernel_path)
+            if (allocated(eop_path)) deallocate(eop_path)
 
             ! Deallocate memory for Earth model data
             call DEINITIALIZE_NSGRAV()
+
+            ! Deallocate memory for EOP
+            call DEINITIALIZE_EOP()
 
             ! Deallocate memory for Legendre coefficients
             if (isun > 1) then

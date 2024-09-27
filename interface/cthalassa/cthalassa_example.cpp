@@ -3,7 +3,7 @@
 int main() {
     // Declare THALASSA parameters
     cthalassa::Model model;
-    cthalassa::Paths paths = {"./data/physical_constants.txt", "./data/earth_potential/GRIM5-S1.txt", "./data/kernels_to_load.furnsh"};
+    cthalassa::Paths paths = {"./data/physical_constants.txt", "./data/earth_potential/GRIM5-S1.txt", "./data/kernels_to_load.furnsh", "./data/eop_data.txt"};
     cthalassa::Settings settings;
     cthalassa::Spacecraft spacecraft = {+8500.000000000000E+00, +13.00000000000000E+00, +13.00000000000000E+00, +2.200000000000000E+00, +1.500000000000000E+00};
 

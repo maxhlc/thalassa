@@ -23,7 +23,7 @@ module NSGRAV
 ! MODULES
 use KINDS,      only: dk
 use SETTINGS,   only: gdeg,gord
-use IO,         only: id_earth
+use IO,         only: id_earth, id_eop
 use PHYS_CONST, only: qk,GE,RE,flatt,omegaE,secsPerDay,secsPerSidDay,twopi,&
 &ERR_constant
 implicit none
@@ -38,12 +38,68 @@ real(dk),allocatable  ::  Anm(:,:),Dnm(:,:),Enm(:,:),Fnm(:,:),Gnm(:,:)
 real(dk),allocatable  ::  Rm(:),Im(:),Pn(:)
 real(dk),allocatable  ::  Aux1(:),Aux2(:),Aux3(:),Aux4(:,:)
 
-
-
+! earth orientation parameters array
+real(dk),allocatable  ::  eop(:,:)
 
 contains
 
+subroutine INITIALIZE_EOP(eopfile)
 
+! formal parameters
+character(len=*), intent(in)  ::  eopfile
+
+! local parameters
+integer        :: io, nlines, i
+character(200) :: line
+character(200) :: format
+real(dk)       :: mjd, pmx, pmy, UT1_UTC, LOD, dx00, dy00
+
+! set number of lines to zero
+nlines = 0
+
+! count lines
+open(unit=id_eop,file=trim(eopfile),status='old',action='read')
+do
+  read(id_eop,*,iostat=io)
+  if (io/=0) exit
+  nlines = nlines + 1
+end do
+close(id_eop)
+
+! rewind 
+rewind(id_eop)
+
+! allocate
+if (allocated(eop)) deallocate(eop)
+allocate(eop(1:nlines, 1:7))
+
+! read in eop data
+open(unit=id_eop,file=trim(eopfile),status='old',action='read')
+do i = 1,nlines
+
+  ! read line
+  read(id_eop, '(7X,F8.2,3X,F9.6,10X,F9.6,12X,F10.7,11X,F7.4,11X,F9.3,10X,F9.3,67X)')mjd,pmx,pmy,UT1_UTC,LOD,dx00,dy00
+
+  ! add to EOP array
+  eop(i,1) = mjd
+  eop(i,2) = pmx
+  eop(i,3) = pmy
+  eop(i,4) = UT1_UTC
+  eop(i,5) = LOD
+  eop(i,6) = dx00
+  eop(i,7) = dy00
+
+enddo
+
+close(id_eop)
+
+end subroutine INITIALIZE_EOP
+
+subroutine DEINITIALIZE_EOP()
+
+if (allocated(eop)) deallocate(eop)
+
+end subroutine DEINITIALIZE_EOP
 
 
 subroutine INITIALIZE_NSGRAV(earthFile)
@@ -214,6 +270,187 @@ NORMFACT = sqrt(numer/denom)
 
 end function NORMFACT
 
+subroutine GCRFtoITRF(MJD_UTC, Rgcrf, Ritrf, Vgcrf, Vitrf, Agcrf, Aitrf, gcrf_itrf_out)
+
+! external subroutines
+use PHYS_CONST, only: UTC2TT
+
+! no implicit vars
+implicit none
+
+! external functions
+real(dk), external :: iau_SP00
+real(dk), external :: iau_ERA00
+
+! Formals
+real(dk), intent(in)            ::  MJD_UTC
+real(dk), intent(in)            ::  Rgcrf(3)
+real(dk), intent(in), optional  ::  Vgcrf(3)
+real(dk), intent(in), optional  ::  Agcrf(3)
+real(dk), intent(out)           ::  Ritrf(3)
+real(dk), intent(out), optional ::  Vitrf(3)
+real(dk), intent(out), optional ::  Aitrf(3)
+real(dk), intent(out), optional :: gcrf_itrf_out(3,3)
+
+
+! Locals
+integer   :: eopIdx
+integer   :: imjd, imjd0, imjdcurr, imjdDiff
+real(dk)  :: UTCjd1, UTCjd2, TTjd1, TTjd2, MJD_TT   
+real(dk)  :: UT1_UTC, UT1jd1, UT1jd2
+integer   :: J
+real(dk)  :: Xp, Yp, dx00, dy00, LOD
+real(dk)  :: OMEGAEARTH, omegaE
+real(dk)  :: X, Y, S
+real(dk)  :: BPN_T(3,3), R_T(3,3), W_T(3,3), tempmat1(3,3), tempmat2(3,3), gcrf_itrf(3,3)
+real(dk)  :: era
+real(dk)  :: Rtirs(3), Vtirs(3), tempvec1(3), tempvec2(3), tempvec3(3), tempvec4(3), tempvec5(3), tempvec6(3)
+real(dk)  :: omegavec(3), omegavec2(3)
+real(dk)  :: DAS2R, DMAS2R
+
+! constants
+DAS2R  = 4.848136811095359935899141e-6_dk
+DMAS2R = DAS2R / 1e3_dk
+
+! get UTC and TT
+MJD_TT  = UTC2TT(MJD_UTC)
+UTCjd1  = 2400000.5_dk
+UTCjd2  = MJD_UTC
+TTjd1   = 2400000.5_dk
+TTjd2   = MJD_TT
+
+! get eop data index
+imjdCurr = MJD_UTC
+imjd0 = eop(1,1)
+
+! check for unprovided date
+if (imjdCurr < imjd0) then
+  write(*,*)imjdCurr,imjd0,'Requested date is before start of Earth Orientation Data'
+endif
+
+! index of requested mjd
+imjdDiff = imjdCurr - imjd0
+eopIdx = 1 + imjdDIff
+
+! debug
+! write(*,*)imjd0,imjdCurr,eopIdx,eop(eopIdx,1)
+
+! polar motion
+Xp = eop(eopIdx, 2) * DAS2R
+Yp = eop(eopIdx, 3) * DAS2R
+
+! CIP offsets wrt IAU 20000
+dx00 = eop(eopIdx, 5) * DMAS2R
+dy00 = eop(eopIdx, 6) * DMAS2R
+
+! length of day (convert microseconds to seconds)
+LOD = eop(eopIdx, 7)/1000_dk
+
+! compute earth rotation rate
+OMEGAEARTH = 7.292115146706979e-5_dk
+omegaE     = OMEGAEARTH*(1_dk - (LOD/86400_dk))
+
+! convert UTC to UT1
+! write(*,*)'eopIdx',eopIdx,eop(eopIdx,1:7)
+UT1_UTC = eop(eopIdx, 4) 
+! write(*,*)'UT1_UTC',UT1_UTC
+call iau_UTCUT1(UTCjd1, UTCjd2, UT1_UTC, UT1jd1, UT1Jd2, J)
+
+! CIP and CIO, IAU 2000A (Represents the PN matrix in Vallado)
+call iau_XYS00B(TTjd1, TTjd2, X, Y, S)
+
+! add CIP corrections
+X = X + dx00;
+Y = Y + dy00;
+
+! GCRS to CIRS matrix (celestial to intermediate matrix [BPN]' = [N]'[P]'[B]')
+call iau_C2IXYS(X, Y, S, BPN_T)
+
+! Earth rotation angle
+era = iau_ERA00(UT1jd1, UT1jd2)
+
+! rotation matrix about pole
+R_T(1,1) = 1
+R_T(1,2) = 0
+R_T(1,3) = 0
+R_T(2,1) = 0
+R_T(2,2) = 1
+R_T(2,3) = 0
+R_T(3,1) = 0
+R_T(3,2) = 0
+R_T(3,3) = 1
+call iau_RZ(era, R_T)
+
+! Polar motion matrix (TIRS->ITRS, IERS 2003) (W_T matrix)
+call iau_POM00(Xp, Yp, iau_SP00(TTjd1, TTjd2), W_T)
+
+! multiply [R]',[BPN]',and [W]'
+call iau_RXR(R_T, BPN_T, tempmat1)
+call iau_RXR(W_T, tempmat1, gcrf_itrf)
+
+! rotate position vector
+call iau_RXP(gcrf_itrf, Rgcrf, Ritrf)
+
+! output rotation matrix if present
+if (present(gcrf_itrf_out)) then
+  gcrf_itrf_out = gcrf_itrf
+endif
+
+if (present(Vgcrf)) then
+
+  ! compute position and velocity in TIRS frame
+  call iau_RXR(R_T, BPN_T, tempmat1)
+  call iau_RXP(tempmat1, Rgcrf, Rtirs)
+
+  ! define angular velocity vector
+  omegavec(1) = 0
+  omegavec(2) = 0
+  omegavec(3) = omegaE
+  
+  ! perform transformation
+  call iau_PXP(omegavec, Rtirs, tempvec1)
+  call iau_PMP(Vtirs, tempvec1, tempvec2)
+  call iau_RXP(W_T, tempvec2, Vitrf)
+
+  if (present(Agcrf)) then
+
+    ! define two times angular velocity vector
+    omegavec2(1) = 0
+    omegavec2(2) = 0
+    omegavec2(3) = 2_dk*omegaE
+
+    ! vector-matrix operations from Vallado
+
+    ! R'*N'*P'*B'
+    call iau_RXR(R_T, BPN_T, tempmat1)
+
+    ! R'*N'*P'*B'*Agcrf
+    call iau_RXP(tempmat1, Agcrf, tempvec1)
+
+    ! omega x omega
+    call iau_PXP(omegavec, omegavec, tempvec2)
+
+    ! omega x omega x Rtirs
+    call iau_PXP(tempvec2, Rtirs, tempvec3)
+
+    ! 2*omega x Vtirs
+    call iau_PXP(omegavec2, Vtirs, tempvec4)
+
+    ! (omega x omega x Rtirs + 2*omega x Vtirs)
+    call iau_PPP(tempvec3, tempvec4, tempvec5)
+
+    ! R'*N'*P'*B'*Agcrf - (omega x omega x Rtirs + 2*omega x Vtirs)
+    call iau_PMP(tempvec1, tempvec5, tempvec6)
+
+    ! Aitrf = W'*(R'*N'*P'*B'*Agcrf - (omega x omega x Rtirs + 2*omega x Vtirs))
+    call iau_RXP(W_T, tempvec6, Aitrf)
+
+  endif
+
+endif
+
+end subroutine GCRFtoITRF
+
 
 
 subroutine PINES_NSG(GM,RE,rIn,tau,FIn,pot,dPot)
@@ -275,29 +512,38 @@ real(dk)  ::  ERR, ERR_nd          ! Earth Rotation Rate [rad/s, -]
 ! SOFA routines
 real(dk) :: iau_GMST06
 
+! gcrf -> itrf conversion
+real(dk) :: Rgcrf(3), Ritrf(3)
+real(dk) :: Vgcrf(3), Vitrf(3)
+real(dk) :: Agcrf(3), Aitrf(3)
+real(dk) :: dummy
+real(dk) :: gcrf_itrf(3,3)
+real(dk) :: itrf_gcrf(3,3)
+
 ! ==============================================================================
 
 rNormSq = dot_product(rIn,rIn)
 rNorm = sqrt(rNormSq)
+rho = RE/rNorm
 
 ! ==============================================================================
 ! 01. Transform from inertial to body-fixed frame
 ! ==============================================================================
 
-u = rIn(3)/rNorm
-
-! Greenwich Mean Sidereal Time (IAU 2006 conventions)
+! get UTC and TT
 MJD_UTC = T2MJD(tau)
 MJD_TT  = UTC2TT(MJD_UTC)
 
-GMST = iau_GMST06 ( delta_JD_MJD, MJD_UTC, delta_JD_MJD, MJD_TT )
-cosGMST = cos(GMST); sinGMST = sin(GMST)
+! get rotation matrix from gcrf to itrf
+call GCRFtoITRF(MJD_UTC, rIn, Ritrf, gcrf_itrf_out=gcrf_itrf)
 
-! Rotate equatorial components of rIn to get direction cosines in the body-fixed frame
-s = (rIn(1) * cosGMST + rIn(2) * sinGMST)/rNorm
-t = (rIn(2) * cosGMST - rIn(1) * sinGMST)/rNorm
+! transpose to get rotation from itrf to gcrf
+call iau_TR(gcrf_itrf, itrf_gcrf)
 
-rho = RE/rNorm
+! non-dimensionalized satellite body-fixed coordinates
+u = Ritrf(3)/rNorm
+s = Ritrf(1)/rNorm
+t = Ritrf(2)/rNorm
 
 ! ==============================================================================
 ! 02. Fill in coefficient matrices and auxiliary vectors
@@ -392,9 +638,7 @@ if (present(FIn)) then
   F = F / RE
 
   ! Transform to inertial frame
-  FIn(1) = F(1)*cosGMST - F(2)*sinGMST
-  FIn(2) = F(1)*sinGMST + F(2)*cosGMST
-  FIn(3) = F(3)
+  call iau_RXP(itrf_gcrf, F, FIn)
 
 end if
 

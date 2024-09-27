@@ -20,7 +20,7 @@ use SETTINGS, only: outpath
 
 ! VARIABLES
 implicit none
-integer,parameter    ::  id_earth = 23
+integer,parameter    ::  id_earth = 23, id_eop = 25
 integer,parameter    ::  id_ic = 10, id_in = 11, id_cart = 12, id_orb = 13
 integer,parameter    ::  id_stat = 14, id_log = 15
 character(len=512)   ::  object_path
@@ -237,7 +237,7 @@ integer  ::  iwr
 
 ! ==============================================================================
 
-write(fid,'(6(es22.15,'',''),es22.15)') (yx(iwr,1:7), iwr=1,npts)
+write(fid,'(7(es22.15,'',''))') (yx(iwr,1:7), iwr=1,npts)
 close(fid)
 
 end subroutine DUMP_TRAJ

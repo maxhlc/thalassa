@@ -122,6 +122,9 @@ namespace cthalassa {
         /// @brief Filepath for SPICE kernel
         std::string kernel_path;
 
+        /// @brief Filepath for EOP
+        std::string eop_path;
+
         /**
          * @brief Equality comparison with another Paths structure
          *
@@ -131,7 +134,7 @@ namespace cthalassa {
          * @return true Paths match
          * @return false Paths mismatch
          */
-        bool operator==(const Paths &rhs) const { return (phys_path == rhs.phys_path) && (earth_path == rhs.earth_path) && (kernel_path == rhs.kernel_path); }
+        bool operator==(const Paths &rhs) const { return (phys_path == rhs.phys_path) && (earth_path == rhs.earth_path) && (kernel_path == rhs.kernel_path) && (eop_path == rhs.eop_path); }
 
         /**
          * @brief Inequality comparison with another Paths structure
@@ -160,6 +163,10 @@ namespace cthalassa {
             // Set SPICE kernel path
             strcpy(paths.kernel_path, kernel_path.c_str());
             paths.kernel_path_len = kernel_path.size();
+
+            // Set EOP path
+            strcpy(paths.eop_path, eop_path.c_str());
+            paths.eop_path_len = eop_path.size();
 
             // Return path struct
             return paths;

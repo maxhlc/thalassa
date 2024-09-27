@@ -3,7 +3,14 @@ import os
 import sys
 
 sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "lib"))
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "lib",
+        )
+    )
 )
 
 # Import PyTHALASSA
@@ -20,6 +27,7 @@ paths = pythalassa.Paths()
 paths.phys_path = "./data/physical_constants.txt"
 paths.earth_path = "./data/earth_potential/GRIM5-S1.txt"
 paths.kernel_path = "./data/kernels_to_load.furnsh"
+paths.eop_path = "./data/eop_data.txt"
 
 # Declare settings
 settings = pythalassa.Settings()

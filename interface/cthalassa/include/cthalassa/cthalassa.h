@@ -82,6 +82,10 @@ typedef struct THALASSAPathStruct {
     // SPICE kernel path
     char kernel_path[512];
     size_t kernel_path_len;
+
+    // EOP path
+    char eop_path[512];
+    size_t eop_path_len;
 } THALASSAPathStruct;
 
 /**
