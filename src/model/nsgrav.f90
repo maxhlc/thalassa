@@ -270,8 +270,7 @@ NORMFACT = sqrt(numer/denom)
 
 end function NORMFACT
 
-subroutine GCRFtoITRF(MJD_UTC, Rgcrf, Ritrf, Vgcrf, Vitrf, Agcrf, Aitrf, gcrf_itrf_out)
-
+subroutine GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf_out)
 ! external subroutines
 use PHYS_CONST, only: UTC2TT
 
@@ -283,15 +282,8 @@ real(dk), external :: iau_SP00
 real(dk), external :: iau_ERA00
 
 ! Formals
-real(dk), intent(in)            ::  MJD_UTC
-real(dk), intent(in)            ::  Rgcrf(3)
-real(dk), intent(in), optional  ::  Vgcrf(3)
-real(dk), intent(in), optional  ::  Agcrf(3)
-real(dk), intent(out)           ::  Ritrf(3)
-real(dk), intent(out), optional ::  Vitrf(3)
-real(dk), intent(out), optional ::  Aitrf(3)
-real(dk), intent(out), optional :: gcrf_itrf_out(3,3)
-
+real(dk), intent(in)  :: MJD_UTC
+real(dk), intent(out) :: gcrf_itrf_out(3,3)
 
 ! Locals
 integer   :: eopIdx
@@ -388,69 +380,27 @@ call iau_POM00(Xp, Yp, iau_SP00(TTjd1, TTjd2), W_T)
 call iau_RXR(R_T, BPN_T, tempmat1)
 call iau_RXR(W_T, tempmat1, gcrf_itrf)
 
-! rotate position vector
-call iau_RXP(gcrf_itrf, Rgcrf, Ritrf)
+! Output rotation matrix
+gcrf_itrf_out = gcrf_itrf
 
-! output rotation matrix if present
-if (present(gcrf_itrf_out)) then
-  gcrf_itrf_out = gcrf_itrf
-endif
+end subroutine GCRFtoITRF_MATRIX
 
-if (present(Vgcrf)) then
+subroutine GCRFtoITRF(MJD_UTC, Rgcrf, Ritrf, gcrf_itrf)
+  implicit none
 
-  ! compute position and velocity in TIRS frame
-  call iau_RXR(R_T, BPN_T, tempmat1)
-  call iau_RXP(tempmat1, Rgcrf, Rtirs)
+  ! Parameters
+  real(dk), intent(in)  :: MJD_UTC
+  real(dk), intent(in)  :: Rgcrf(3)
+  real(dk), intent(out) :: Ritrf(3)
+  real(dk), intent(out) :: gcrf_itrf(3,3)
 
-  ! define angular velocity vector
-  omegavec(1) = 0
-  omegavec(2) = 0
-  omegavec(3) = omegaE
-  
-  ! perform transformation
-  call iau_PXP(omegavec, Rtirs, tempvec1)
-  call iau_PMP(Vtirs, tempvec1, tempvec2)
-  call iau_RXP(W_T, tempvec2, Vitrf)
+  ! Get rotation matrix
+  call GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf)
 
-  if (present(Agcrf)) then
-
-    ! define two times angular velocity vector
-    omegavec2(1) = 0
-    omegavec2(2) = 0
-    omegavec2(3) = 2_dk*omegaE
-
-    ! vector-matrix operations from Vallado
-
-    ! R'*N'*P'*B'
-    call iau_RXR(R_T, BPN_T, tempmat1)
-
-    ! R'*N'*P'*B'*Agcrf
-    call iau_RXP(tempmat1, Agcrf, tempvec1)
-
-    ! omega x omega
-    call iau_PXP(omegavec, omegavec, tempvec2)
-
-    ! omega x omega x Rtirs
-    call iau_PXP(tempvec2, Rtirs, tempvec3)
-
-    ! 2*omega x Vtirs
-    call iau_PXP(omegavec2, Vtirs, tempvec4)
-
-    ! (omega x omega x Rtirs + 2*omega x Vtirs)
-    call iau_PPP(tempvec3, tempvec4, tempvec5)
-
-    ! R'*N'*P'*B'*Agcrf - (omega x omega x Rtirs + 2*omega x Vtirs)
-    call iau_PMP(tempvec1, tempvec5, tempvec6)
-
-    ! Aitrf = W'*(R'*N'*P'*B'*Agcrf - (omega x omega x Rtirs + 2*omega x Vtirs))
-    call iau_RXP(W_T, tempvec6, Aitrf)
-
-  endif
-
-endif
+  ! Rotate position vector
+  call iau_RXP(gcrf_itrf, Rgcrf, Ritrf)
 
 end subroutine GCRFtoITRF
-
 
 
 subroutine PINES_NSG(GM,RE,rIn,tau,FIn,pot,dPot)
@@ -535,7 +485,7 @@ MJD_UTC = T2MJD(tau)
 MJD_TT  = UTC2TT(MJD_UTC)
 
 ! get rotation matrix from gcrf to itrf
-call GCRFtoITRF(MJD_UTC, rIn, Ritrf, gcrf_itrf_out=gcrf_itrf)
+call GCRFtoITRF(MJD_UTC, rIn, Ritrf, gcrf_itrf)
 
 ! transpose to get rotation from itrf to gcrf
 call iau_TR(gcrf_itrf, itrf_gcrf)
