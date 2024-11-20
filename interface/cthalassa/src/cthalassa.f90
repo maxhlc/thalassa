@@ -92,7 +92,7 @@ module CTHALASSA
 
             ! Import THALASSA modules
             use SETTINGS, only: isun, imoon, iephem
-            use NSGRAV,   only: DEINITIALIZE_NSGRAV, DEINITIALIZE_EOP
+            use NSGRAV,   only: DEINITIALIZE_NSGRAV, DEINITIALIZE_EOP, DEINITIALIZE_ROTATION
             use SUN_MOON, only: DEINITIALIZE_LEGENDRE, GslSun, GslMoon
 
             ! Deallocate memory for file paths
@@ -106,6 +106,9 @@ module CTHALASSA
 
             ! Deallocate memory for EOP
             call DEINITIALIZE_EOP()
+
+            ! Deallocated memory for rotation matrices
+            call DEINITIALIZE_ROTATION()
 
             ! Deallocate memory for Legendre coefficients
             if (isun > 1) then
@@ -140,6 +143,7 @@ module CTHALASSA
             use KINDS,       only: dk
             use AUXILIARIES, only: MJD0, MJDvector, useMJDVector
             use PROPAGATE,   only: DPROP_REGULAR
+            use NSGRAV,      only: INITIALIZE_ROTATION
 
             ! Subroutine parameters
             integer(c_size_t), intent(in)                   :: ntime
@@ -183,6 +187,9 @@ module CTHALASSA
             ! Load initial conditions
             R0 = inputstate(1:3)
             V0 = inputstate(4:6)
+
+            ! Initialise rotation matrices
+            call INITIALIZE_ROTATION(MJD0, MJD0 + tspan, 7._dk)
 
             ! Propagate orbit
             call DPROP_REGULAR(R0, V0, tspan, tstep, cart, int_steps, tot_calls, exitcode)

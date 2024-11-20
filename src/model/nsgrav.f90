@@ -41,6 +41,11 @@ real(dk),allocatable  ::  Aux1(:),Aux2(:),Aux3(:),Aux4(:,:)
 ! earth orientation parameters array
 real(dk),allocatable  ::  eop(:,:)
 
+! Pre-computed rotation matrices
+integer               :: nrotation
+real(dk), allocatable :: MJDrotation(:)
+real(dk), allocatable :: rotation(:, :, :)
+
 contains
 
 subroutine INITIALIZE_EOP(eopfile)
@@ -101,6 +106,52 @@ if (allocated(eop)) deallocate(eop)
 
 end subroutine DEINITIALIZE_EOP
 
+subroutine INITIALIZE_ROTATION(MJDstart, MJDend, period)
+  implicit none
+
+  ! Parameters
+  real(dk), intent(in) :: MJDstart
+  real(dk), intent(in) :: MJDend
+  real(dk), intent(in) :: period
+
+  ! Locals
+  integer             :: irotation
+  real(dk)            :: rotationTemp(3,3)
+
+  ! Calculate number of periods
+  ! NOTE: adds an additional point after the final time
+  nrotation = int((MJDend - MJDstart) / period) + 2
+
+  ! Ensure arrays are not initialised
+  call DEINITIALIZE_ROTATION()
+
+  ! Allocate arrays
+  allocate(MJDrotation(1:nrotation))
+  allocate(rotation(1:3, 1:3, 1:nrotation))
+
+  ! Iterate through periods
+  do irotation = 1, nrotation
+    ! Calculate MJD
+    MJDrotation(irotation) = MJDstart + (irotation - 1) * period
+
+    ! Calculate rotation matrix
+    call GCRFtoITRF_MATRIX(MJDrotation(irotation), rotationTemp)
+
+    ! Store rotation matrix
+    rotation(1:3, 1:3, irotation) = rotationTemp
+  end do
+
+end subroutine INITIALIZE_ROTATION
+
+subroutine DEINITIALIZE_ROTATION()
+
+  ! Deallocate rotation dates
+  if (allocated(MJDrotation)) deallocate(MJDrotation)
+
+  ! Deallocate rotation matrices
+  if (allocated(rotation)) deallocate(rotation)
+
+end subroutine DEINITIALIZE_ROTATION
 
 subroutine INITIALIZE_NSGRAV(earthFile)
 ! Description:
@@ -394,8 +445,35 @@ subroutine GCRFtoITRF(MJD_UTC, Rgcrf, Ritrf, gcrf_itrf)
   real(dk), intent(out) :: Ritrf(3)
   real(dk), intent(out) :: gcrf_itrf(3,3)
 
+  ! Locals
+  integer  :: irotation
+  real(dk) :: MJD1, MJD2
+  real(dk) :: fraction
+  real(dk) :: MAT1(3, 3), MAT2(3, 3)
+
   ! Get rotation matrix
-  call GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf)
+  ! TODO: replace brute force search?
+  do irotation = 1, nrotation
+    ! Check if rotation date exceeds current date
+    if (MJD_UTC .LT. MJDrotation(irotation)) then
+      ! Extract dates
+      MJD1 = MJDrotation(irotation - 1)
+      MJD2 = MJDrotation(irotation)
+
+      ! Load rotation matrices
+      MAT1(:, :) = rotation(:, :, irotation - 1)
+      MAT2(:, :) = rotation(:, :, irotation)
+
+      ! Calculate fraction
+      fraction = (MJD_UTC - MJD1) / (MJD2 - MJD1)
+
+      ! Interpolate rotation matrix
+      gcrf_itrf = (1.0 - fraction) * MAT1 + fraction * MAT2
+
+      ! Break do loop
+      exit
+    end if
+  end do
 
   ! Rotate position vector
   call iau_RXP(gcrf_itrf, Rgcrf, Ritrf)

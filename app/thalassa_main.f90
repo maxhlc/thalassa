@@ -41,7 +41,7 @@ use AUXILIARIES, only: MJD0
 use IO,          only: READ_IC,CREATE_OUT,DUMP_TRAJ,CREATE_LOG
 use CART_COE,    only: COE2CART,CART2COE
 use PHYS_CONST,  only: READ_PHYS,GMST_UNIFORM
-use NSGRAV,      only: INITIALIZE_NSGRAV, INITIALIZE_EOP
+use NSGRAV,      only: INITIALIZE_NSGRAV, INITIALIZE_EOP, INITIALIZE_ROTATION
 use PROPAGATE,   only: DPROP_REGULAR
 use SUN_MOON,    only: INITIALIZE_LEGENDRE
 use SETTINGS,    only: READ_SETTINGS
@@ -115,6 +115,9 @@ call INITIALIZE_NSGRAV(earth_path)
 
 ! Initialize EOP data
 call INITIALIZE_EOP(eop_path)
+
+! Initialize rotation matrices
+call INITIALIZE_ROTATION(MJD0, MJD0 + tspan, 7._dk)
 
 ! Initialize Legendre coefficients, if needed
 if (isun > 1) then

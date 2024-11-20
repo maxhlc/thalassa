@@ -3,9 +3,16 @@
 int main() {
     // Declare THALASSA parameters
     cthalassa::Model model;
-    cthalassa::Paths paths = {"./data/physical_constants.txt", "./data/earth_potential/GRIM5-S1.txt", "./data/kernels_to_load.furnsh", "./data/eop_data.txt"};
+    cthalassa::Paths paths = {.phys_path = "./data/physical_constants.txt",
+                              .earth_path = "./data/earth_potential/GRIM5-S1.txt",
+                              .kernel_path = "./data/kernels_to_load.furnsh",
+                              .eop_path = "./data/eop_data.txt"};
     cthalassa::Settings settings;
-    cthalassa::Spacecraft spacecraft = {+8500.000000000000E+00, +13.00000000000000E+00, +13.00000000000000E+00, +2.200000000000000E+00, +1.500000000000000E+00};
+    cthalassa::Spacecraft spacecraft = {.mass = +8500.000000000000E+00,
+                                        .area_drag = +13.00000000000000E+00,
+                                        .area_srp = +13.00000000000000E+00,
+                                        .cd = +2.200000000000000E+00,
+                                        .cr = +1.500000000000000E+00};
 
     // Create THALASSA propagator
     cthalassa::Propagator propagator(model, paths, settings, spacecraft);
