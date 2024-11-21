@@ -42,9 +42,11 @@ real(dk),allocatable  ::  Aux1(:),Aux2(:),Aux3(:),Aux4(:,:)
 real(dk),allocatable  ::  eop(:,:)
 
 ! Pre-computed rotation matrices
+logical               :: usePrecomputed = .FALSE.
 integer               :: nrotation
-real(dk), allocatable :: MJDrotation(:)
-real(dk), allocatable :: rotation(:, :, :)
+real(dk), allocatable :: precomputedMJD(:)
+real(dk), allocatable :: precomputedBPN_T(:, :, :)
+real(dk), allocatable :: precomputedW_T(:, :, :)
 
 contains
 
@@ -115,8 +117,10 @@ subroutine INITIALIZE_ROTATION(MJDstart, MJDend, period)
   real(dk), intent(in) :: period
 
   ! Locals
-  integer             :: irotation
-  real(dk)            :: rotationTemp(3,3)
+  integer  :: irotation
+  real(dk) :: tempMJD, MJD_TT, UTCjd1, UTCjd2, TTjd1, TTjd2
+  integer  :: eopIdx
+  real(dk) :: tempBPN_T(3,3), tempW_T(3,3)
 
   ! Calculate number of periods
   ! NOTE: adds an additional point after the final time
@@ -126,32 +130,75 @@ subroutine INITIALIZE_ROTATION(MJDstart, MJDend, period)
   call DEINITIALIZE_ROTATION()
 
   ! Allocate arrays
-  allocate(MJDrotation(1:nrotation))
-  allocate(rotation(1:3, 1:3, 1:nrotation))
+  allocate(precomputedMJD(1:nrotation))
+  allocate(precomputedBPN_T(1:3, 1:3, 1:nrotation))
+  allocate(precomputedW_T(1:3, 1:3, 1:nrotation))
 
   ! Iterate through periods
   do irotation = 1, nrotation
     ! Calculate MJD
-    MJDrotation(irotation) = MJDstart + (irotation - 1) * period
+    tempMJD = MJDstart + (irotation - 1) * period
 
-    ! Calculate rotation matrix
-    call GCRFtoITRF_MATRIX(MJDrotation(irotation), rotationTemp)
+    ! Preprocess dates and EOP index
+    call UTCtoPARAMS(tempMJD, MJD_TT, UTCjd1, UTCjd2, TTjd1, TTjd2, eopIdx)
 
-    ! Store rotation matrix
-    rotation(1:3, 1:3, irotation) = rotationTemp
+    ! Calculate rotation matrices
+    call GCRStoCIRS_MATRIX(TTjd1, TTjd2, eopIdx, tempBPN_T)
+    call TIRStoITRS_MATRIX(TTjd1, TTjd2, eopIdx, tempW_T)
+
+    ! Store results
+    precomputedMJD(irotation) = tempMJD
+    precomputedBPN_T(1:3, 1:3, irotation) =  tempBPN_T
+    precomputedW_T(1:3, 1:3, irotation) = tempW_T
   end do
 
+  ! Enable precomputed rotation matrices
+  usePrecomputed = .TRUE.
 end subroutine INITIALIZE_ROTATION
 
 subroutine DEINITIALIZE_ROTATION()
+  ! Disable precomputed rotation matrices
+  usePrecomputed = .FALSE.
 
   ! Deallocate rotation dates
-  if (allocated(MJDrotation)) deallocate(MJDrotation)
+  if (allocated(precomputedMJD)) deallocate(precomputedMJD)
 
   ! Deallocate rotation matrices
-  if (allocated(rotation)) deallocate(rotation)
-
+  if (allocated(precomputedBPN_T)) deallocate(precomputedBPN_T)
+  if (allocated(precomputedW_T)) deallocate(precomputedW_T)
 end subroutine DEINITIALIZE_ROTATION
+
+subroutine GET_ROTATION(MJD_UTC, BPN_T, W_T)
+  implicit none
+
+  ! Formals
+  real(dk), intent(in)  :: MJD_UTC
+  real(dk), intent(out) :: BPN_T(3,3), W_T(3,3)
+
+  ! Locals
+  integer  :: irotation
+  real(dk) :: MJD1, MJD2
+  real(dk) :: fraction
+
+  ! Extract index
+  ! TODO: replace brute force with better search algorithm?
+  do irotation = 1, nrotation - 1
+    ! Extract dates
+    MJD1 = precomputedMJD(irotation)
+    MJD2 = precomputedMJD(irotation + 1)
+
+    ! Check current date is within interval
+    if ((MJD_UTC .ge. MJD1) .and. (MJD_UTC .lt. MJD2)) then
+      ! Break do loop
+      exit
+    end if
+  end do
+
+  ! Interpolate matrices
+  fraction = (MJD_UTC - MJD1) / (MJD2 - MJD1)
+  BPN_T = (1.0 - fraction) * precomputedBPN_T(:, :, irotation) + fraction * precomputedBPN_T(:, :, irotation + 1)
+  W_T = (1.0 - fraction) * precomputedW_T(:, :, irotation) + fraction * precomputedW_T(:, :, irotation + 1)
+end subroutine GET_ROTATION
 
 subroutine INITIALIZE_NSGRAV(earthFile)
 ! Description:
@@ -471,7 +518,7 @@ subroutine GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf)
   ! Locals
   integer   :: eopIdx
   real(dk)  :: UTCjd1, UTCjd2, TTjd1, TTjd2, MJD_TT
-  real(dk)  :: BPN_T(3,3), R_T(3,3), W_T(3,3), tempmat1(3,3)
+  real(dk)  :: BPN_T(3,3), R_T(3,3), W_T(3,3)
 
   ! Preprocess dates and EOP index
   call UTCtoPARAMS(MJD_UTC, MJD_TT, UTCjd1, UTCjd2, TTjd1, TTjd2, eopIdx)
@@ -498,8 +545,28 @@ subroutine GCRFtoITRF(MJD_UTC, Rgcrf, Ritrf, gcrf_itrf)
   real(dk), intent(out) :: Ritrf(3)
   real(dk), intent(out) :: gcrf_itrf(3,3)
 
+  ! Locals
+  integer   :: eopIdx
+  real(dk)  :: UTCjd1, UTCjd2, TTjd1, TTjd2, MJD_TT
+  real(dk)  :: BPN_T(3,3), R_T(3,3), W_T(3,3)
+
   ! Get rotation matrix
-  call GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf)
+  if (usePrecomputed) then
+    ! Preprocess dates and EOP index
+    call UTCtoPARAMS(MJD_UTC, MJD_TT, UTCjd1, UTCjd2, TTjd1, TTjd2, eopIdx)
+    
+    ! Calculate ERA
+    call ERA_MATRIX(UTCjd1, UTCjd2, eopIdx, R_T)
+
+    ! Interpolate matrices
+    call GET_ROTATION(MJD_UTC, BPN_T, W_T)
+
+    ! Calculate rotation matrix
+    call GCRFtoITRF_MATRIX_(W_T, R_T, BPN_T, gcrf_itrf)
+  else
+    ! Calculate rotation matrix directly
+    call GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf)
+  endif
 
   ! Rotate position vector
   call iau_RXP(gcrf_itrf, Rgcrf, Ritrf)
