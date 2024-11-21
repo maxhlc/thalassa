@@ -61,6 +61,9 @@ real(dk),parameter  ::  secondsToDegrees = 1._dk/240._dk
 ! real(dk),parameter  ::  ERR_constant  = 1.002737909350795_dk
 real(dk)            ::  ERR_constant
 real(dk)            ::  ERR_constant_nd
+! EOP parameters
+real(dk), parameter :: DAS2R = 4.848136811095359935899141e-6_dk
+real(dk), parameter :: DMAS2R = DAS2R / 1e3_dk
 
 ! Physical parameters (dimensionless)
 real(dk)  ::  RE_nd,GE_nd       ! Earth

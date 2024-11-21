@@ -24,8 +24,8 @@ module NSGRAV
 use KINDS,      only: dk
 use SETTINGS,   only: gdeg,gord
 use IO,         only: id_earth, id_eop
-use PHYS_CONST, only: qk,GE,RE,flatt,omegaE,secsPerDay,secsPerSidDay,twopi,&
-&ERR_constant
+use PHYS_CONST, only: qk, GE, RE, flatt, omegaE, secsPerDay, secsPerSidDay, twopi, ERR_constant, DAS2R, DMAS2R
+
 implicit none
 
 ! VARIABLES
@@ -310,9 +310,9 @@ mr = real(m,qk)
 numer = gamma(lr + mr + 1._qk)
 
 if (m == 0) then
-	kron = 1._qk
+  kron = 1._qk
 else
-	kron = 0._qk
+  kron = 0._qk
 end if
 
 denom = (2._qk - kron) * (2._qk*lr + 1._qk) * gamma(lr - mr + 1._qk)
@@ -321,119 +321,172 @@ NORMFACT = sqrt(numer/denom)
 
 end function NORMFACT
 
-subroutine GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf_out)
-! external subroutines
-use PHYS_CONST, only: UTC2TT
+subroutine GCRStoCIRS_MATRIX(TTjd1, TTjd2, eopIdx, BPN_T)
+  ! No implicit variables
+  implicit none
+  
+  ! Formals
+  real(dk), intent(in)  :: TTjd1, TTjd2
+  integer,  intent(in)  :: eopIdx
+  real(dk), intent(out) :: BPN_T(3,3)
+  
+  ! Locals
+  real(dk)  :: dx00, dy00
+  real(dk)  :: X, Y, S
+  
+  ! CIP offsets wrt IAU 20000
+  dx00 = eop(eopIdx, 5) * DMAS2R
+  dy00 = eop(eopIdx, 6) * DMAS2R
+  
+  ! CIP and CIO, IAU 2000A (Represents the PN matrix in Vallado)
+  call iau_XYS00B(TTjd1, TTjd2, X, Y, S)
+  
+  ! Add CIP corrections
+  X = X + dx00;
+  Y = Y + dy00;
+  
+  ! GCRS to CIRS matrix (celestial to intermediate matrix [BPN]' = [N]'[P]'[B]')
+  call iau_C2IXYS(X, Y, S, BPN_T)
+end subroutine GCRStoCIRS_MATRIX
 
-! no implicit vars
-implicit none
+subroutine ERA_MATRIX(UTCjd1, UTCjd2, eopIdx, R_T)
+  ! No implicit variables
+  implicit none
 
-! external functions
-real(dk), external :: iau_SP00
-real(dk), external :: iau_ERA00
+  ! External functions
+  real(dk), external :: iau_ERA00
 
-! Formals
-real(dk), intent(in)  :: MJD_UTC
-real(dk), intent(out) :: gcrf_itrf_out(3,3)
+  ! Formals
+  real(dk), intent(in)  :: UTCjd1, UTCjd2
+  integer,  intent(in)  :: eopIdx
+  real(dk), intent(out) :: R_T(3,3)
 
-! Locals
-integer   :: eopIdx
-integer   :: imjd, imjd0, imjdcurr, imjdDiff
-real(dk)  :: UTCjd1, UTCjd2, TTjd1, TTjd2, MJD_TT   
-real(dk)  :: UT1_UTC, UT1jd1, UT1jd2
-integer   :: J
-real(dk)  :: Xp, Yp, dx00, dy00, LOD
-real(dk)  :: OMEGAEARTH, omegaE
-real(dk)  :: X, Y, S
-real(dk)  :: BPN_T(3,3), R_T(3,3), W_T(3,3), tempmat1(3,3), tempmat2(3,3), gcrf_itrf(3,3)
-real(dk)  :: era
-real(dk)  :: Rtirs(3), Vtirs(3), tempvec1(3), tempvec2(3), tempvec3(3), tempvec4(3), tempvec5(3), tempvec6(3)
-real(dk)  :: omegavec(3), omegavec2(3)
-real(dk)  :: DAS2R, DMAS2R
+  ! Locals
+  real(dk) :: era
+  real(dk) :: UT1_UTC, UT1jd1, UT1Jd2
+  integer  :: J
 
-! constants
-DAS2R  = 4.848136811095359935899141e-6_dk
-DMAS2R = DAS2R / 1e3_dk
+  ! Convert UTC to UT1
+  UT1_UTC = eop(eopIdx, 4) 
+  call iau_UTCUT1(UTCjd1, UTCjd2, UT1_UTC, UT1jd1, UT1Jd2, J)
 
-! get UTC and TT
-MJD_TT  = UTC2TT(MJD_UTC)
-UTCjd1  = 2400000.5_dk
-UTCjd2  = MJD_UTC
-TTjd1   = 2400000.5_dk
-TTjd2   = MJD_TT
+  ! Earth Rotation Angle  
+  era = iau_ERA00(UT1jd1, UT1jd2)
 
-! get eop data index
-imjdCurr = MJD_UTC
-imjd0 = eop(1,1)
+  ! Rotation matrix about pole
+  R_T(1,1) = 1
+  R_T(1,2) = 0
+  R_T(1,3) = 0
+  R_T(2,1) = 0
+  R_T(2,2) = 1
+  R_T(2,3) = 0
+  R_T(3,1) = 0
+  R_T(3,2) = 0
+  R_T(3,3) = 1
+  call iau_RZ(era, R_T)
+end subroutine ERA_MATRIX
 
-! check for unprovided date
-if (imjdCurr < imjd0) then
-  write(*,*)imjdCurr,imjd0,'Requested date is before start of Earth Orientation Data'
-endif
+subroutine TIRStoITRS_MATRIX(TTjd1, TTjd2, eopIdx, W_T)
+  ! No implicit variables
+  implicit none
+  
+  ! External functions
+  real(dk), external :: iau_SP00
 
-! index of requested mjd
-imjdDiff = imjdCurr - imjd0
-eopIdx = 1 + imjdDIff
+  ! Formals
+  real(dk), intent(in)  :: TTjd1, TTjd2
+  integer,  intent(in)  :: eopIdx
+  real(dk), intent(out) :: W_T(3,3)
+  
+  ! Locals
+  real(dk)  :: Xp, Yp
 
-! debug
-! write(*,*)imjd0,imjdCurr,eopIdx,eop(eopIdx,1)
+  ! Polar motion
+  Xp = eop(eopIdx, 2) * DAS2R
+  Yp = eop(eopIdx, 3) * DAS2R
+  
+  ! Polar motion matrix (TIRS->ITRS, IERS 2003) (W_T matrix)
+  call iau_POM00(Xp, Yp, iau_SP00(TTjd1, TTjd2), W_T)
+end subroutine TIRStoITRS_MATRIX
 
-! polar motion
-Xp = eop(eopIdx, 2) * DAS2R
-Yp = eop(eopIdx, 3) * DAS2R
+subroutine UTCtoPARAMS(MJD_UTC, MJD_TT, UTCjd1, UTCjd2, TTjd1, TTjd2, eopIdx)
+  ! External subroutines
+  use PHYS_CONST, only: UTC2TT
 
-! CIP offsets wrt IAU 20000
-dx00 = eop(eopIdx, 5) * DMAS2R
-dy00 = eop(eopIdx, 6) * DMAS2R
+  ! Formals
+  real(dk), intent(in)  :: MJD_UTC
+  real(dk), intent(out) :: UTCjd1, UTCjd2
+  real(dk), intent(out) :: MJD_TT
+  real(dk), intent(out) :: TTjd1, TTjd2
+  integer,  intent(out) :: eopIdx
 
-! length of day (convert microseconds to seconds)
-LOD = eop(eopIdx, 7)/1000_dk
+  ! Locals
+  integer :: imjdCurr, imjd0, imjdDiff
 
-! compute earth rotation rate
-OMEGAEARTH = 7.292115146706979e-5_dk
-omegaE     = OMEGAEARTH*(1_dk - (LOD/86400_dk))
+  ! Get UTC and TT
+  MJD_TT  = UTC2TT(MJD_UTC)
+  UTCjd1  = 2400000.5_dk
+  UTCjd2  = MJD_UTC
+  TTjd1   = 2400000.5_dk
+  TTjd2   = MJD_TT
 
-! convert UTC to UT1
-! write(*,*)'eopIdx',eopIdx,eop(eopIdx,1:7)
-UT1_UTC = eop(eopIdx, 4) 
-! write(*,*)'UT1_UTC',UT1_UTC
-call iau_UTCUT1(UTCjd1, UTCjd2, UT1_UTC, UT1jd1, UT1Jd2, J)
+  ! Get EOP data index
+  imjdCurr = int(MJD_UTC)
+  imjd0 = int(eop(1,1))
 
-! CIP and CIO, IAU 2000A (Represents the PN matrix in Vallado)
-call iau_XYS00B(TTjd1, TTjd2, X, Y, S)
+  ! Check for unprovided date
+  if (imjdCurr < imjd0) then
+    write(*,*)imjdCurr,imjd0,'Requested date is before start of Earth Orientation Data'
+  endif
 
-! add CIP corrections
-X = X + dx00;
-Y = Y + dy00;
+  ! Index of requested MJD
+  imjdDiff = imjdCurr - imjd0
+  eopIdx = 1 + imjdDIff
+end subroutine UTCtoPARAMS
 
-! GCRS to CIRS matrix (celestial to intermediate matrix [BPN]' = [N]'[P]'[B]')
-call iau_C2IXYS(X, Y, S, BPN_T)
+subroutine GCRFtoITRF_MATRIX_(W_T, R_T, BPN_T, gcrf_itrf)
+  ! No implict variables
+  implicit none
 
-! Earth rotation angle
-era = iau_ERA00(UT1jd1, UT1jd2)
+  ! Formals
+  real(dk), intent(in)  :: W_T(3,3), R_T(3,3), BPN_T(3,3)
+  real(dk), intent(out) :: gcrf_itrf(3,3)
 
-! rotation matrix about pole
-R_T(1,1) = 1
-R_T(1,2) = 0
-R_T(1,3) = 0
-R_T(2,1) = 0
-R_T(2,2) = 1
-R_T(2,3) = 0
-R_T(3,1) = 0
-R_T(3,2) = 0
-R_T(3,3) = 1
-call iau_RZ(era, R_T)
+  ! Locals
+  real(dk) :: temp(3,3)
 
-! Polar motion matrix (TIRS->ITRS, IERS 2003) (W_T matrix)
-call iau_POM00(Xp, Yp, iau_SP00(TTjd1, TTjd2), W_T)
+  ! Multiply [R]',[BPN]',and [W]'
+  call iau_RXR(R_T, BPN_T, temp)
+  call iau_RXR(W_T, temp, gcrf_itrf)
+end subroutine GCRFtoITRF_MATRIX_
 
-! multiply [R]',[BPN]',and [W]'
-call iau_RXR(R_T, BPN_T, tempmat1)
-call iau_RXR(W_T, tempmat1, gcrf_itrf)
+subroutine GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf)
+  ! No implicit variables
+  implicit none
 
-! Output rotation matrix
-gcrf_itrf_out = gcrf_itrf
+  ! Formals
+  real(dk), intent(in)  :: MJD_UTC
+  real(dk), intent(out) :: gcrf_itrf(3,3)
 
+  ! Locals
+  integer   :: eopIdx
+  real(dk)  :: UTCjd1, UTCjd2, TTjd1, TTjd2, MJD_TT
+  real(dk)  :: BPN_T(3,3), R_T(3,3), W_T(3,3), tempmat1(3,3)
+
+  ! Preprocess dates and EOP index
+  call UTCtoPARAMS(MJD_UTC, MJD_TT, UTCjd1, UTCjd2, TTjd1, TTjd2, eopIdx)
+
+  ! GCRS to CIRS matrix (celestial to intermediate matrix [BPN]' = [N]'[P]'[B]')
+  call GCRStoCIRS_MATRIX(TTjd1, TTjd2, eopIdx, BPN_T)
+
+  ! ERA matrix
+  call ERA_MATRIX(UTCjd1, UTCjd2, eopIdx, R_T)
+
+  ! Polar motion matrix (TIRS->ITRS, IERS 2003) (W_T matrix)
+  call TIRStoITRS_MATRIX(TTjd1, TTjd2, eopIdx, W_T)
+
+  ! Multiply [R]',[BPN]',and [W]'
+  call GCRFtoITRF_MATRIX_(W_T, R_T, BPN_T, gcrf_itrf)
 end subroutine GCRFtoITRF_MATRIX
 
 subroutine GCRFtoITRF(MJD_UTC, Rgcrf, Ritrf, gcrf_itrf)
@@ -445,39 +498,11 @@ subroutine GCRFtoITRF(MJD_UTC, Rgcrf, Ritrf, gcrf_itrf)
   real(dk), intent(out) :: Ritrf(3)
   real(dk), intent(out) :: gcrf_itrf(3,3)
 
-  ! Locals
-  integer  :: irotation
-  real(dk) :: MJD1, MJD2
-  real(dk) :: fraction
-  real(dk) :: MAT1(3, 3), MAT2(3, 3)
-
   ! Get rotation matrix
-  ! TODO: replace brute force search?
-  do irotation = 1, nrotation
-    ! Check if rotation date exceeds current date
-    if (MJD_UTC .LT. MJDrotation(irotation)) then
-      ! Extract dates
-      MJD1 = MJDrotation(irotation - 1)
-      MJD2 = MJDrotation(irotation)
-
-      ! Load rotation matrices
-      MAT1(:, :) = rotation(:, :, irotation - 1)
-      MAT2(:, :) = rotation(:, :, irotation)
-
-      ! Calculate fraction
-      fraction = (MJD_UTC - MJD1) / (MJD2 - MJD1)
-
-      ! Interpolate rotation matrix
-      gcrf_itrf = (1.0 - fraction) * MAT1 + fraction * MAT2
-
-      ! Break do loop
-      exit
-    end if
-  end do
+  call GCRFtoITRF_MATRIX(MJD_UTC, gcrf_itrf)
 
   ! Rotate position vector
   call iau_RXP(gcrf_itrf, Rgcrf, Ritrf)
-
 end subroutine GCRFtoITRF
 
 
